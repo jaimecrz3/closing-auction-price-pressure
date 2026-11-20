@@ -1,7 +1,5 @@
 # Closing Auction & Overnight Reversal
 
-**MMF 1941 · Financial Data Analysis & Strategies · University of Toronto**
-
 ---
 
 ## Research Question
