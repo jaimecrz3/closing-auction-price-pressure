@@ -1,0 +1,77 @@
+# Python environment
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# IDE and local configuration
+.vscode/
+.idea/
+.env
+.env.*
+!.env.example
+
+# Licensed and local research data
+/data/
+/outputs/
+/support/
+/reports/
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.xlsm
+*.parquet
+*.pkl
+*.pickle
+*.db
+*.sqlite*
+*.gz
+
+# Presentation: keep finished PowerPoints,
+# exclude source templates and supporting material
+/presentation/progress_update/MMF_2026_Project_Progress_Update_Template.pptx
+/presentation/**/*.md
+/presentation/**/*.txt
+/presentation/**/*.pdf
+/presentation/**/*.png
+/presentation/**/*.jpg
+/presentation/**/aggregate_figures/
+
+# PowerPoint generation scripts
+/src/build_progress_update.py
+/src/*presentation*.py
+/src/*slides*.py
+
+# Personal speaking scripts
+speaking_notes*.md
+speaking_notes*.txt
+*presentation_script*.md
+*presentation_script*.txt
+
+# Temporary files
+.DS_Store
+Thumbs.db
+desktop.ini
+~$*
+*.tmp
+*.log
+
+# Python and Matplotlib caches
+.cache/
+__pycache__/
+.pytest_cache/
+
+# Personal presentation scripts
+*.docx
+speaking_notes*.md
+speaking_notes*.txt
+
+# Presentation generation scripts
+/src/build_progress_update.py
+/src/*presentation*.py
+/src/*slides*.py
