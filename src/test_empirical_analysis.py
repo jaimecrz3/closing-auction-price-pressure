@@ -3,9 +3,15 @@ import unittest
 import numpy as np
 import pandas as pd
 from build_full_panel import ROOT,venue,price_for
-from estimate_empirical_models import fit
+from estimate_empirical_models import fit,trading_date_codes
 
 class EmpiricalTests(unittest.TestCase):
+    def test_bootstrap_preserves_scheduled_gap(self):
+        frame=pd.DataFrame({'date':['2016-01-04','2016-01-06']})
+        codes,n=trading_date_codes(frame)
+        np.testing.assert_array_equal(codes,[0,2])
+        self.assertEqual(n,3)
+
     def test_walmart_venue_boundary(self):
         self.assertEqual(venue('WMT','2025-12-08'),'WMT UN EQUITY')
         self.assertEqual(venue('WMT','2025-12-09'),'WMT UW EQUITY')

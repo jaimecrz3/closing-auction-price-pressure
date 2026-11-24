@@ -47,8 +47,17 @@ def fit(frame,xcol='x_10m',ycol='y_SplitOnly',interaction=True,weights=None):
     return {'coef':b,'cov':cov,'n':n,'securities':frame.symbol.nunique(),'dates':G,
             'start':frame.date.min(),'end':frame.date.max(),'K':K}
 
+def trading_date_codes(frame):
+    """Keep scheduled-date gaps in the resampling grid (notably flagged SPY)."""
+    calendar=pd.read_csv(ROOT/'reports/timing_diagnostics/exchange_sessions_2010_2025.csv')
+    grid=calendar.loc[calendar.session_date.between(frame.date.min(),frame.date.max()),'session_date'].tolist()
+    mapping={d:i for i,d in enumerate(grid)}
+    codes=frame.date.map(mapping)
+    if codes.isna().any():raise ValueError('Regression date outside the validated calendar')
+    return codes.to_numpy(dtype=int),len(grid)
+
 def bootstrap(frame,xcol='x_10m',ycol='y_SplitOnly'):
-    dates=pd.factorize(frame.date,sort=True)[0];G=dates.max()+1;rng=np.random.default_rng(SEED);draws=[]
+    dates,G=trading_date_codes(frame);rng=np.random.default_rng(SEED);draws=[]
     for r in range(REPLICATES):
         starts=rng.integers(0,G,size=math.ceil(G/BLOCK))
         sampled=((starts[:,None]+np.arange(BLOCK))%G).ravel()[:G]
@@ -134,19 +143,20 @@ def main():
     write_report(fits,results,br,marginal,difference,np.quantile(diffboot,[.025,.975]),len(boot),eq,spy)
     assert hashlib.sha256(SPEC.read_bytes()).hexdigest()==spec_hash
     (OUT/'estimation_run.json').write_text(json.dumps({'spec_sha256':spec_hash,'panel_sha256':hashlib.sha256(panel_path.read_bytes()).hexdigest(),
-          'models':len(fits),'seed':SEED,'replicates_main':len(boot),'replicates_spy':len(spyboot),'block_length':BLOCK,'numpy_version':np.__version__},indent=2))
+          'models':len(fits),'seed':SEED,'replicates_main':len(boot),'replicates_spy':len(spyboot),'block_length':BLOCK,'bootstrap_date_grid':'validated scheduled trading dates, including dates without eligible observations','numpy_version':np.__version__},indent=2))
     print('ESTIMATION COMPLETE',flush=True)
 
 def make_figures(fits,results,marginal,res,qlo,qhi):
     plt.rcParams.update({'font.family':'Arial','font.size':11,'axes.spines.top':False,'axes.spines.right':False})
     labels=['Pooled at mean share']+list(sorted(k.removeprefix('Security_') for k in fits if k.startswith('Security_')))
     keys=['Primary_10m_split_only']+['Security_'+s for s in labels[1:]]
-    b=[fits[k]['coef'][0] for k in keys];se=[math.sqrt(fits[k]['cov'][0,0]) for k in keys]
-    fig,ax=plt.subplots(figsize=(8,6));ax.errorbar(b,range(len(b)),xerr=np.array(se)*1.96,fmt='o',color='#087E8B',capsize=3);ax.set_yticks(range(len(b)),labels);ax.invert_yaxis();ax.axvline(0,color='gray',ls='--');ax.set_xlabel('Overnight return slope per unit final-10-minute return');ax.set_title('Reversal heterogeneity at security-mean auction share');fig.text(.5,.01,'Fixed security/month effects; 95% trading-date clustered CIs',ha='center',fontsize=9);fig.tight_layout(rect=(0,.035,1,1));fig.savefig(FIG/'reversal_heterogeneity.png',dpi=220);plt.close(fig)
+    # A +100 bp signal change implies 100*beta bp of conditional overnight change.
+    b=[100*fits[k]['coef'][0] for k in keys];se=[100*math.sqrt(fits[k]['cov'][0,0]) for k in keys]
+    fig,ax=plt.subplots(figsize=(8,6));ax.errorbar(b,range(len(b)),xerr=np.array(se)*1.96,fmt='o',color='#087E8B',capsize=3);ax.set_yticks(range(len(b)),labels);ax.invert_yaxis();ax.axvline(0,color='gray',ls='--');ax.set_xlabel('Conditional overnight change (bp) for a +1% final-10-minute move');ax.set_title('Conditional response at security-mean auction share');fig.text(.5,.01,'Fixed effects/share held constant; 95% date-clustered CIs; not a return forecast',ha='center',fontsize=9);fig.tight_layout(rect=(0,.035,1,1));fig.savefig(FIG/'reversal_heterogeneity.png',dpi=220);plt.close(fig)
     grid=np.linspace(qlo,qhi,100);vals=np.array([slope(res,a) for a in grid])*100
-    fig,ax=plt.subplots(figsize=(7.5,4.8));ax.plot(grid*100,vals[:,0],color='#087E8B');ax.fill_between(grid*100,vals[:,1],vals[:,2],color='#087E8B',alpha=.18);ax.axhline(0,color='gray',ls='--');ax.set_xlabel('Auction share minus security mean (percentage points)');ax.set_ylabel('Predicted overnight change (bp) for +100 bp x');ax.set_title('Auction-share moderation, 25th–75th percentile');fig.text(.5,.01,'95% date-clustered joint intervals; conditional association',ha='center',fontsize=9);fig.tight_layout(rect=(0,.035,1,1));fig.savefig(FIG/'auction_moderation.png',dpi=220);plt.close(fig)
+    fig,ax=plt.subplots(figsize=(7.5,4.8));ax.plot(grid*100,vals[:,0],color='#087E8B');ax.fill_between(grid*100,vals[:,1],vals[:,2],color='#087E8B',alpha=.18);ax.axhline(0,color='gray',ls='--');ax.set_xlabel('Auction share minus security mean (percentage points)');ax.set_ylabel('Conditional overnight change (bp) for +100 bp x');ax.set_title('Auction-share moderation, 25th–75th percentile');fig.text(.5,.01,'95% date-clustered joint intervals; conditional association',ha='center',fontsize=9);fig.tight_layout(rect=(0,.035,1,1));fig.savefig(FIG/'auction_moderation.png',dpi=220);plt.close(fig)
     keys=['Primary_10m_split_only','Window_5m','Window_15m','Window_30m','Split_dividend','Exclude_all_identified_actions','Exclude_next_cash_exdate','Exclude_early_closes','Earlier10m_Cminus30_Cminus21']
-    names=['Primary 10m','5m','15m','30m','Dividend-adjusted y','Exclude identified actions','Exclude next ex-dividend','Exclude early closes','Earlier 10m window']
+    names=['Primary 10m','5m','15m','30m','Dividend-adjusted y','Exclude identified actions','Exclude next ex-dividend','Exclude early closes','Earlier pre-close 10m (C−30:C−21)']
     fig,axes=plt.subplots(1,2,figsize=(10,5),sharey=True)
     for ax,j,title in zip(axes,[0,2],['Reversal slope beta','Moderation interaction delta']):
         bs=[fits[k]['coef'][j] for k in keys];ses=[math.sqrt(fits[k]['cov'][j,j]) for k in keys]
@@ -155,6 +165,10 @@ def make_figures(fits,results,marginal,res,qlo,qhi):
 
 def write_report(fits,results,br,marginal,difference,diffci,draws,eq,spy):
     r=fits['Primary_10m_split_only'];b,g,d=r['coef'];se=np.sqrt(np.diag(r['cov']));boot={x['term']:x for x in br if x['model']=='Primary_10m_split_only'}
+    spy_beta_boot=next(x for x in br if x['model']=='SPY_benchmark' and x['term']=='beta_x')
+    spy_block_reading=('supports a negative benchmark slope' if spy_beta_boot['block_ci_high']<0 else
+                       'includes zero, so benchmark reversal remains inconclusive' if spy_beta_boot['block_ci_low']<=0<=spy_beta_boot['block_ci_high'] else
+                       'does not support a negative benchmark slope')
     low,ref,high=marginal
     status_beta='supported' if b+1.96*se[0]<0 and boot['beta_x']['block_ci_high']<0 else 'unsupported in the predicted direction' if b-1.96*se[0]>0 and boot['beta_x']['block_ci_low']>0 else 'inconclusive'
     status_delta='supported in sign' if d-1.96*se[2]>0 and boot['delta_interaction']['block_ci_low']>0 else 'unsupported in the predicted direction' if d+1.96*se[2]<0 and boot['delta_interaction']['block_ci_high']<0 else 'inconclusive'
@@ -179,6 +193,8 @@ is centered within security at its primary-sample mean. Returns/shares are fract
         bb=boot[name];text+=f"| {name} | {r['coef'][j]:.5f} | [{r['coef'][j]-1.96*se[j]:.5f}, {r['coef'][j]+1.96*se[j]:.5f}] | [{bb['block_ci_low']:.5f}, {bb['block_ci_high']:.5f}] |\n"
     text+=f'''\nBootstrap: {draws}/{REPLICATES} successful circular 20-trading-date draws,
 seed {SEED}; entire cross-sections move together, FE refit in every draw.
+Blocks follow scheduled trading dates, including dates without eligible SPY
+observations, so the flagged-data gap is not compressed into consecutive rows.
 Date clustering accommodates common-day dependence; the block check addresses
 serial dependence. Individual-security table intervals use date clusters and
 should not be read as serial-dependence-adjusted findings for each stock.
@@ -187,6 +203,9 @@ should not be read as serial-dependence-adjusted findings for each stock.
 {b:.5f}. **Interaction prediction: {status_delta}.** A positive delta alone is
 not enough: examine total slopes below. Economic magnitudes are effects of a
 signal change conditional on fixed effects/share; intercepts are not predictions.
+These are conditional changes, not unconditional overnight-return forecasts.
+Trading profitability was not tested: execution, transaction costs and risk
+would require a separate analysis. No causal interpretation is established.
 
 ## Total slopes and economic magnitudes
 
@@ -231,11 +250,12 @@ zero. Thus auction attenuation is not a robust pooled conclusion across windows.
 The earlier-window reversal interval includes zero, giving weaker timing evidence;
 its difference from the primary coefficient has not been formally tested.
 
-SPY's reversal date-clustered interval is below zero but its 20-date bootstrap
-interval includes zero. Treat the ETF benchmark evidence as inconclusive under
-serial-dependence robustness, not a replication with equally strong support.
+SPY's reversal date-clustered interval is below zero. Its scheduled-20-date
+bootstrap interval is [{spy_beta_boot['block_ci_low']:.5f}, {spy_beta_boot['block_ci_high']:.5f}]
+and {spy_block_reading}. Keep the ETF benchmark separate from the primary equities.
 
-The earlier 10-minute comparison is a timing contrast, not a guaranteed null
+The C−30 through C−21 window is an earlier pre-close timing comparison, not a
+mid-session placebo. It is a timing contrast, not a guaranteed null
 placebo: news and pressure can persist over both windows. Alternative windows
 change signal scale and cannot be compared as identical-sized treatments without
 the reported +100 bp normalization. Action removal uses identified exported events;
